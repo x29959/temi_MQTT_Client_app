@@ -19,14 +19,7 @@ import android.widget.Toast;
 import com.robotemi.sdk.BatteryData;
 import com.robotemi.sdk.Robot;
 import com.robotemi.sdk.TtsRequest;
-import com.robotemi.sdk.listeners.OnBatteryStatusChangedListener;
-import com.robotemi.sdk.listeners.OnDetectionStateChangedListener;
-import com.robotemi.sdk.listeners.OnGoToLocationStatusChangedListener;
-import com.robotemi.sdk.listeners.OnRobotReadyListener;
-import com.robotemi.sdk.listeners.OnUserInteractionChangedListener;
-
-
-
+import com.robotemi.sdk.listeners.*;
 
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
@@ -82,6 +75,8 @@ public class MainActivity extends AppCompatActivity implements
             }
         }
     };
+    private volatile boolean isMoving = false;
+    private final Object movementLock = new Object();
     //----------------------------------------------------------------------------------------------
     // ACTIVITY LIFE CYCLE METHODS
     //----------------------------------------------------------------------------------------------
@@ -110,6 +105,7 @@ public class MainActivity extends AppCompatActivity implements
         sRobot.addOnUserInteractionChangedListener(this);
         sRobot.addAsrListener(this);
         sRobot.addTtsListener(this);
+//        sRobot.addOnBeWithMeStatusChangedListener(this);
         
         
     
@@ -142,6 +138,8 @@ public class MainActivity extends AppCompatActivity implements
 
     @Override
     protected void onDestroy() {
+        isMoving = false;
+        sRobot.stopMovement();
         super.onDestroy();
 
         // disconnect MQTT client from broker
@@ -280,6 +278,8 @@ public class MainActivity extends AppCompatActivity implements
             e.printStackTrace();
         }
     }
+
+
 
     /**
      * On user interaction
@@ -479,7 +479,6 @@ public class MainActivity extends AppCompatActivity implements
                 case "waypoint":
                     parseWaypoint(topicTree[4], payload);
                     break;
-
                 case "move":
                     parseMove(topicTree[4], payload);
                     break;
@@ -522,6 +521,9 @@ public class MainActivity extends AppCompatActivity implements
             case "delete":
                 sRobot.deleteLocation(locationName);
                 break;
+            case "follow":
+                sRobot.constraintBeWith();
+                break;
 
             case "goto":
                 // check that the location exists, then go to that location
@@ -545,98 +547,60 @@ public class MainActivity extends AppCompatActivity implements
      * @throws JSONException Exception is thrown if it's unable to get the (x, y) location from the payload
      */
     private void parseMove(String command, JSONObject payload) throws JSONException {
-        switch (command) {
-            case "joystick":
-                float x = Float.parseFloat(payload.getString("x"));
-                float y = Float.parseFloat(payload.getString("y"));
-                sRobot.skidJoy(x, y);
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                break;
+        synchronized (movementLock) {
+            switch (command) {
+                case "joystick":
+                    isMoving = true;
+                    float x = Float.parseFloat(payload.getString("x"));
+                    float y = Float.parseFloat(payload.getString("y"));
+                    sRobot.skidJoy(x, y);
+                    break;
 
-            case "forward":
+                case "forward":
+                    isMoving = true;
+                    // Single sustained forward movement instead of multiple commands
+                    sRobot.skidJoy(0.5F, 0.0F);
+                    break;
 
-                // Drive in a straight line for 1 second, try 10 times
-                for (int k = 1; k <= 10; k++) {
-                    sRobot.skidJoy(+1.0F, 0.0F);
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+                case "backward":
+                    isMoving = true;
+                    // Single sustained backward movement
+                    sRobot.skidJoy(-0.6F, 0.0F);
+                    break;
+
+                case "turn_by":
+                    if (!isMoving) {
+                        sRobot.turnBy(Integer.parseInt(payload.getString("angle")), 1.0f);
                     }
-                }
-                sRobot.stopMovement();
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
+                    break;
 
-                break;
-
-
-
-            case "backward":
-
-                for (int i =1; i <= 5 ; i++) {
-                    sRobot.skidJoy(-1.0F, 0.0F);
-                    try {
-                        Thread.sleep(500);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+                case "tilt":
+                    if (!isMoving) {
+                        sRobot.tiltAngle(Integer.parseInt(payload.getString("angle")));
                     }
-                }
-                break;
+                    break;
 
-            case "turn_by":
-                sRobot.turnBy(Integer.parseInt(payload.getString("angle")), 1.0f);
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                break;
+                case "tilt_by":
+                    if (!isMoving) {
+                        sRobot.tiltBy(Integer.parseInt(payload.getString("angle")), 1.0f);
+                    }
+                    break;
 
-            case "tilt":
-                sRobot.tiltAngle(Integer.parseInt(payload.getString("angle")));
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                break;
+                case "stop":
+                    isMoving = false;
+                    sRobot.stopMovement();
+                    break;
 
-            case "tilt_by":
-                sRobot.tiltBy(Integer.parseInt(payload.getString("angle")), 1.0f);
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                break;
+                case "follow":
+                    if (!isMoving) {
+                        sRobot.beWithMe();
+                    }
+                    break;
 
-
-            case "stop":
-                sRobot.stopMovement();
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                break;
-
-
-            default:
-                Log.i(TAG, "[MOVE] Unknown Movement Command");
-                break;
-        }
-        try {
-            Thread.sleep(500);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+                default:
+                    Log.i(TAG, "[MOVE] Unknown Movement Command");
+                    break;
+            }
         }
     }
 
