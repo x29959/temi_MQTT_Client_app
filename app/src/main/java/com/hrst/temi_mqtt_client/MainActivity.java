@@ -569,9 +569,9 @@ public class MainActivity extends AppCompatActivity implements
                     break;
 
                 case "turn_by":
-                    if (!isMoving) {
-                        sRobot.turnBy(Integer.parseInt(payload.getString("angle")), 1.0f);
-                    }
+                    isMoving = true;
+                    sRobot.turnBy(Integer.parseInt(payload.getString("angle")), 1.0f);
+
                     break;
 
                 case "tilt":
@@ -592,9 +592,8 @@ public class MainActivity extends AppCompatActivity implements
                     break;
 
                 case "follow":
-                    if (!isMoving) {
-                        sRobot.beWithMe();
-                    }
+                    isMoving = true;
+                    sRobot.beWithMe();
                     break;
 
                 default:
